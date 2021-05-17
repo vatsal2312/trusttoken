@@ -27,8 +27,12 @@ contract CurveYearnStrategy is UpgradeableClaimable, ITrueStrategy {
 
     // Number of tokens in Curve yPool
     uint8 public constant N_TOKENS = 4;
-    // Max slippage during uniswap sell
-    uint256 public constant MAX_PRICE_SLIPPAGE = 300; // 3%
+
+    // precision for basis points: 10000 = 100%
+    uint256 private constant BASIS_PRECISION = 10000;
+
+    // Max slippage in basis points during uniswap sell
+    uint256 public constant MAX_PRICE_SLIPPAGE = 125; // 1.25%
 
     // ================ WARNING ==================
     // ===== THIS CONTRACT IS INITIALIZABLE ======
@@ -53,6 +57,9 @@ contract CurveYearnStrategy is UpgradeableClaimable, ITrueStrategy {
 
     // CRV price oracle
     ICrvPriceOracle public crvOracle;
+
+    // custom slippage tolerance in basis points
+    uint256 public slippageTolerance;
 
     // ======= STORAGE DECLARATION END ===========
 
@@ -81,6 +88,12 @@ contract CurveYearnStrategy is UpgradeableClaimable, ITrueStrategy {
         _1Inch = _1inchExchange;
         crvOracle = _crvOracle;
         tokenIndex = _tokenIndex;
+        slippageTolerance = 75; // 0.75%
+    }
+
+    function setSlippageTolerance(uint256 newSlippageTolerance) external onlyOwner {
+        require(slippageTolerance <= MAX_PRICE_SLIPPAGE, "CurveYearnStrategy: Too high slippage");
+        slippageTolerance = newSlippageTolerance;
     }
 
     /**
@@ -252,8 +265,8 @@ contract CurveYearnStrategy is UpgradeableClaimable, ITrueStrategy {
      * compared to the oracle price but will ensure that the value doesn't drop
      * when token exchanges are performed.
      */
-    function conservativePriceEstimation(uint256 price) internal pure returns (uint256) {
-        return price.mul(uint256(10000).sub(MAX_PRICE_SLIPPAGE)).div(10000);
+    function conservativePriceEstimation(uint256 price) internal view returns (uint256) {
+        return price.mul(uint256(10000).sub(slippageTolerance)).div(BASIS_PRECISION);
     }
 
     /**
