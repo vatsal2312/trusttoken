@@ -118,12 +118,12 @@ workflows:
   integration_tests:
     triggers:
       - schedule:
-          cron: "20 14 * * *"
+          cron: "23 14 * * *"
           filters:
             branches:
               only: decouple-integration-tests
     jobs:
+      - build
       - integration:
           requires:
             - build
-
