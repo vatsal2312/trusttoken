@@ -115,6 +115,14 @@ workflows:
       - deploy:
           requires:
             - build
+  integration_tests:
+    triggers:
+      - schedule:
+          cron: "20 14 * * *"
+          filters:
+            branches:
+              only: decouple-integration-tests
+    jobs:
       - integration:
           requires:
             - build
