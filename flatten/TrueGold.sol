@@ -243,7 +243,7 @@ interface IERC20 {
      *
      * Returns a boolean value indicating whether the operation succeeded.
      *
-     * // importANT: Beware that changing an allowance with this method brings the risk
+     * IMPORTANT: Beware that changing an allowance with this method brings the risk
      * that someone may use both the old and the new allowance by unfortunate
      * transaction ordering. One possible solution to mitigate this race
      * condition is to first reduce the spender's allowance to 0 and set the
@@ -481,7 +481,7 @@ library Address {
     /**
      * @dev Returns true if `account` is a contract.
      *
-     * [// importANT]
+     * [IMPORTANT]
      * ====
      * It is unsafe to assume that an address for which this function returns
      * false is an externally-owned account (EOA) and not a contract.
@@ -517,7 +517,7 @@ library Address {
      *
      * https://diligence.consensys.net/posts/2019/09/stop-using-soliditys-transfer-now/[Learn more].
      *
-     * // importANT: because control is transferred to `recipient`, care must be
+     * IMPORTANT: because control is transferred to `recipient`, care must be
      * taken to not create reentrancy vulnerabilities. Consider using
      * {ReentrancyGuard} or the
      * https://solidity.readthedocs.io/en/v0.5.11/security-considerations.html#use-the-checks-effects-interactions-pattern[checks-effects-interactions pattern].
@@ -1001,7 +1001,7 @@ contract TrueGold is Initializable, Ownable, TrueMintableBurnable, Reclaimable {
     using SafeMath for uint256;
 
     uint8 private constant DECIMALS = 6;
-    uint256 private constant BURN_AMOUNT_MULTIPLIER = 12_500_000;
+    uint256 private constant BURN_AMOUNT_MULTIPLIER = 12_441_000;
 
     function initialize(uint256 minBurnAmount, uint256 maxBurnAmount) public initializer {
         __Ownable_init_unchained();
@@ -1017,17 +1017,17 @@ contract TrueGold is Initializable, Ownable, TrueMintableBurnable, Reclaimable {
     }
 
     function symbol() public override pure returns (string memory) {
-        return "TGLD";
+        return "TGOLD";
     }
 
     function setBurnBounds(uint256 minAmount, uint256 maxAmount) public override onlyOwner {
-        require(minAmount.mod(BURN_AMOUNT_MULTIPLIER) == 0, "TrueGold: min amount is not a multiple of 12,500,000");
-        require(maxAmount.mod(BURN_AMOUNT_MULTIPLIER) == 0, "TrueGold: max amount is not a multiple of 12,500,000");
+        require(minAmount.mod(BURN_AMOUNT_MULTIPLIER) == 0, "TrueGold: min amount is not a multiple of 12,441,000");
+        require(maxAmount.mod(BURN_AMOUNT_MULTIPLIER) == 0, "TrueGold: max amount is not a multiple of 12,441,000");
         super.setBurnBounds(minAmount, maxAmount);
     }
 
     function _burn(address account, uint256 amount) internal virtual override {
-        require(amount.mod(BURN_AMOUNT_MULTIPLIER) == 0, "TrueGold: burn amount is not a multiple of 12,500,000");
+        require(amount.mod(BURN_AMOUNT_MULTIPLIER) == 0, "TrueGold: burn amount is not a multiple of 12,441,000");
         super._burn(account, amount);
     }
 }

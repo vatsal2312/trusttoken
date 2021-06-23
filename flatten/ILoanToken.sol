@@ -67,7 +67,7 @@ interface IERC20 {
      *
      * Returns a boolean value indicating whether the operation succeeded.
      *
-     * // importANT: Beware that changing an allowance with this method brings the risk
+     * IMPORTANT: Beware that changing an allowance with this method brings the risk
      * that someone may use both the old and the new allowance by unfortunate
      * transaction ordering. One possible solution to mitigate this race
      * condition is to first reduce the spender's allowance to 0 and set the
@@ -151,7 +151,9 @@ interface ILoanToken is IERC20 {
 
     function withdraw(address _beneficiary) external;
 
-    function close() external;
+    function settle() external;
+
+    function enterDefault() external;
 
     function liquidate() external;
 
@@ -159,11 +161,15 @@ interface ILoanToken is IERC20 {
 
     function repay(address _sender, uint256 _amount) external;
 
+    function repayInFull(address _sender) external;
+
     function reclaim() external;
 
     function allowTransfer(address account, bool _status) external;
 
     function repaid() external view returns (uint256);
+
+    function isRepaid() external view returns (bool);
 
     function balance() external view returns (uint256);
 

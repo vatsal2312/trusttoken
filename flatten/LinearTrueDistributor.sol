@@ -214,9 +214,10 @@ abstract contract Context {
 }
 
 
-// Dependency file: contracts/truefi/common/Initializable.sol
+// Dependency file: contracts/common/Initializable.sol
 
 // Copied from https://github.com/OpenZeppelin/openzeppelin-contracts-ethereum-package/blob/v3.0.0/contracts/Initializable.sol
+// Added public isInitialized() view of private initialized bool.
 
 // pragma solidity 0.6.10;
 
@@ -277,18 +278,26 @@ contract Initializable {
         return cs == 0;
     }
 
+    /**
+     * @dev Return true if and only if the contract has been initialized
+     * @return whether the contract has been initialized
+     */
+    function isInitialized() public view returns (bool) {
+        return initialized;
+    }
+
     // Reserved storage space to allow for layout changes in the future.
     uint256[50] private ______gap;
 }
 
 
-// Dependency file: contracts/truefi/common/UpgradeableOwnable.sol
+// Dependency file: contracts/common/UpgradeableOwnable.sol
 
 // pragma solidity 0.6.10;
 
 // import {Context} from "@openzeppelin/contracts/GSN/Context.sol";
 
-// import {Initializable} from "contracts/truefi/common/Initializable.sol";
+// import {Initializable} from "contracts/common/Initializable.sol";
 
 /**
  * @dev Contract module which provides a basic access control mechanism, where
@@ -397,7 +406,7 @@ interface IERC20 {
      *
      * Returns a boolean value indicating whether the operation succeeded.
      *
-     * // importANT: Beware that changing an allowance with this method brings the risk
+     * IMPORTANT: Beware that changing an allowance with this method brings the risk
      * that someone may use both the old and the new allowance by unfortunate
      * transaction ordering. One possible solution to mitigate this race
      * condition is to first reduce the spender's allowance to 0 and set the
@@ -460,7 +469,7 @@ pragma solidity 0.6.10;
 
 // import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
 
-// import {Ownable} from "contracts/truefi/common/UpgradeableOwnable.sol";
+// import {Ownable} from "contracts/common/UpgradeableOwnable.sol";
 // import {ITrueDistributor, IERC20} from "contracts/truefi/interface/ITrueDistributor.sol";
 
 /**
@@ -511,6 +520,11 @@ contract LinearTrueDistributor is ITrueDistributor, Ownable {
      * @param amount Amount of TRU distributed to farm
      */
     event Distributed(uint256 amount);
+
+    /**
+     * @dev Emitted when a distribution is restarted after it was over
+     */
+    event DistributionRestarted(uint256 _distributionStart, uint256 _duration, uint256 _dailyDistribution);
 
     /**
      * @dev Initialize distributor
@@ -609,5 +623,28 @@ contract LinearTrueDistributor is ITrueDistributor, Ownable {
         totalAmount = dailyDistribution.mul(timeLeft).div(1 days);
         distributed = 0;
         emit TotalAmountChanged(totalAmount);
+    }
+
+    /**
+     * @dev Restart the distribution that has ended
+     */
+    function restart(
+        uint256 _distributionStart,
+        uint256 _duration,
+        uint256 _dailyDistribution
+    ) public onlyOwner {
+        require(
+            block.timestamp > distributionStart.add(duration),
+            "LinearTrueDistributor: Cannot restart distribution before it's over"
+        );
+        require(_distributionStart > block.timestamp, "LinearTrueDistributor: Cannot restart distribution from the past");
+
+        distribute();
+
+        distributionStart = _distributionStart;
+        lastDistribution = _distributionStart;
+        duration = _duration;
+        totalAmount = _dailyDistribution.mul(_duration).div(1 days);
+        distributed = 0;
     }
 }

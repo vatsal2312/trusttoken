@@ -67,7 +67,7 @@ interface IERC20 {
      *
      * Returns a boolean value indicating whether the operation succeeded.
      *
-     * // importANT: Beware that changing an allowance with this method brings the risk
+     * IMPORTANT: Beware that changing an allowance with this method brings the risk
      * that someone may use both the old and the new allowance by unfortunate
      * transaction ordering. One possible solution to mitigate this race
      * condition is to first reduce the spender's allowance to 0 and set the
@@ -306,7 +306,7 @@ library Address {
     /**
      * @dev Returns true if `account` is a contract.
      *
-     * [// importANT]
+     * [IMPORTANT]
      * ====
      * It is unsafe to assume that an address for which this function returns
      * false is an externally-owned account (EOA) and not a contract.
@@ -342,7 +342,7 @@ library Address {
      *
      * https://diligence.consensys.net/posts/2019/09/stop-using-soliditys-transfer-now/[Learn more].
      *
-     * // importANT: because control is transferred to `recipient`, care must be
+     * IMPORTANT: because control is transferred to `recipient`, care must be
      * taken to not create reentrancy vulnerabilities. Consider using
      * {ReentrancyGuard} or the
      * https://solidity.readthedocs.io/en/v0.5.11/security-considerations.html#use-the-checks-effects-interactions-pattern[checks-effects-interactions pattern].
@@ -438,7 +438,7 @@ library Address {
 }
 
 
-// Dependency file: contracts/trusttoken/common/ProxyStorage.sol
+// Dependency file: contracts/trusttoken/common/TruProxyStorage.sol
 
 // pragma solidity 0.6.10;
 
@@ -447,7 +447,7 @@ library Address {
  * New storage must be appended to the end
  * Never remove items from this list
  */
-contract ProxyStorage {
+contract TruProxyStorage {
     bool initalized;
     uint256 public totalSupply;
 
@@ -457,6 +457,14 @@ contract ProxyStorage {
 
     address owner_;
     address pendingOwner_;
+
+    // represents total distribution for locked balances
+    mapping(address => uint256) distribution;
+
+    // registry of locked addresses
+    address public timeLockRegistry;
+    // allow unlocked transfers to special account
+    bool public returnsLocked;
 
     mapping(address => address) public delegates; // A record of votes checkpoints for each account, by index
     struct Checkpoint {
@@ -510,7 +518,7 @@ contract ProxyStorage {
 // import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
 // import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
-// import {ProxyStorage} from "contracts/trusttoken/common/ProxyStorage.sol";
+// import {TruProxyStorage} from "contracts/trusttoken/common/TruProxyStorage.sol";
 
 // prettier-ignore
 /**
@@ -537,7 +545,7 @@ contract ProxyStorage {
  * functions have been added to mitigate the well-known issues around setting
  * allowances. See {IERC20-approve}.
  */
-abstract contract ERC20 is ProxyStorage, Context {
+abstract contract ERC20 is TruProxyStorage, Context {
     using SafeMath for uint256;
     using Address for address;
 
@@ -1017,9 +1025,10 @@ contract MockERC20Token is ERC20 {
 }
 
 
-// Dependency file: contracts/truefi/common/Initializable.sol
+// Dependency file: contracts/common/Initializable.sol
 
 // Copied from https://github.com/OpenZeppelin/openzeppelin-contracts-ethereum-package/blob/v3.0.0/contracts/Initializable.sol
+// Added public isInitialized() view of private initialized bool.
 
 // pragma solidity 0.6.10;
 
@@ -1078,6 +1087,14 @@ contract Initializable {
             cs := extcodesize(self)
         }
         return cs == 0;
+    }
+
+    /**
+     * @dev Return true if and only if the contract has been initialized
+     * @return whether the contract has been initialized
+     */
+    function isInitialized() public view returns (bool) {
+        return initialized;
     }
 
     // Reserved storage space to allow for layout changes in the future.
@@ -1154,7 +1171,7 @@ pragma solidity 0.6.10;
 
 // import {MockERC20Token} from "contracts/trusttoken/mocks/MockERC20Token.sol";
 
-// import {Initializable} from "contracts/truefi/common/Initializable.sol";
+// import {Initializable} from "contracts/common/Initializable.sol";
 // import {ICurve, ICurvePool} from "contracts/truefi/interface/ICurve.sol";
 // import {IYToken} from "contracts/truefi/interface/IYToken.sol";
 // import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";

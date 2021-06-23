@@ -12,7 +12,7 @@ import {
 // inputs
 const beneficiary = '0x58f5F0684C381fCFC203D77B2BbA468eBb29B098' // blocktower
 const amount = '4210526315000000' // 42,105,263.15 TRU (8 Decimals)
-const start = '1623211200' // 9:00PM PT
+const start = '1623222000' 
 const txnArgs = { gasLimit: 1_000_000, gasPrice: 20_000_000_000 }
 
 // mainnet

@@ -226,7 +226,7 @@ library Address {
     /**
      * @dev Returns true if `account` is a contract.
      *
-     * [// importANT]
+     * [IMPORTANT]
      * ====
      * It is unsafe to assume that an address for which this function returns
      * false is an externally-owned account (EOA) and not a contract.
@@ -262,7 +262,7 @@ library Address {
      *
      * https://diligence.consensys.net/posts/2019/09/stop-using-soliditys-transfer-now/[Learn more].
      *
-     * // importANT: because control is transferred to `recipient`, care must be
+     * IMPORTANT: because control is transferred to `recipient`, care must be
      * taken to not create reentrancy vulnerabilities. Consider using
      * {ReentrancyGuard} or the
      * https://solidity.readthedocs.io/en/v0.5.11/security-considerations.html#use-the-checks-effects-interactions-pattern[checks-effects-interactions pattern].
@@ -358,7 +358,7 @@ library Address {
 }
 
 
-// Dependency file: contracts/trusttoken/common/ProxyStorage.sol
+// Dependency file: contracts/governance/common/ProxyStorage.sol
 
 // pragma solidity 0.6.10;
 
@@ -368,7 +368,7 @@ library Address {
  * Never remove items from this list
  */
 contract ProxyStorage {
-    bool initalized;
+    bool public initalized;
     uint256 public totalSupply;
 
     mapping(address => uint256) public balanceOf;
@@ -407,7 +407,7 @@ contract ProxyStorage {
 }
 
 
-// Dependency file: contracts/trusttoken/common/ERC20.sol
+// Dependency file: contracts/governance/common/ERC20.sol
 
 /**
  * @notice This is a copy of openzeppelin ERC20 contract with removed state variables.
@@ -430,7 +430,7 @@ contract ProxyStorage {
 // import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
 // import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
-// import {ProxyStorage} from "contracts/trusttoken/common/ProxyStorage.sol";
+// import {ProxyStorage} from "contracts/governance/common/ProxyStorage.sol";
 
 // prettier-ignore
 /**
@@ -730,7 +730,7 @@ interface IERC20 {
      *
      * Returns a boolean value indicating whether the operation succeeded.
      *
-     * // importANT: Beware that changing an allowance with this method brings the risk
+     * IMPORTANT: Beware that changing an allowance with this method brings the risk
      * that someone may use both the old and the new allowance by unfortunate
      * transaction ordering. One possible solution to mitigate this race
      * condition is to first reduce the spender's allowance to 0 and set the
@@ -808,7 +808,7 @@ interface IVoteTokenWithERC20 is IVoteToken, IERC20 {}
 
 pragma solidity 0.6.10;
 
-// import {ERC20} from "contracts/trusttoken/common/ERC20.sol";
+// import {ERC20} from "contracts/governance/common/ERC20.sol";
 // import {IVoteToken} from "contracts/governance/interface/IVoteToken.sol";
 
 /**
@@ -830,7 +830,7 @@ abstract contract VoteToken is ERC20, IVoteToken {
         return _delegate(msg.sender, delegatee);
     }
 
-    /** 
+    /**
      * @dev Delegate votes using signature
      */
     function delegateBySig(
@@ -965,7 +965,7 @@ abstract contract VoteToken is ERC20, IVoteToken {
         }
     }
 
-    /** 
+    /**
      * @dev internal function to write a checkpoint for voting power
      */
     function _writeCheckpoint(
@@ -1027,7 +1027,7 @@ abstract contract VoteToken is ERC20, IVoteToken {
         return a - b;
     }
 
-    /** 
+    /**
      * @dev internal function to get chain ID
      */
     function getChainId() internal pure returns (uint256) {
