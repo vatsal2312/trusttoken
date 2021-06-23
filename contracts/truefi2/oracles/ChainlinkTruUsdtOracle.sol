@@ -6,7 +6,7 @@ import {ChainlinkTruOracle, IERC20WithDecimals} from "./ChainlinkTruOracle.sol";
 
 contract ChainlinkTruUsdtOracle is ChainlinkTruOracle {
     function token() public override view returns (IERC20WithDecimals) {
-        return IERC20WithDecimals(0xdac17f958d2ee523a2206206994597c13d831ec7);
+        return IERC20WithDecimals(0xdAC17F958D2ee523a2206206994597C13D831ec7);
     }
 
     /*
