@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.6.10;
+import "hardhat/console.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20WithDecimals} from "../truefi2/interface/IERC20WithDecimals.sol";
 import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
@@ -44,6 +45,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
     using SafeMath for uint256;
 
     enum LoanStatus {Void, Pending, Retracted, Running, Settled, Defaulted, Liquidated}
+    enum ApplicationStatus {Void, Pending, Discarded, Accepted}
 
     struct Loan {
         address creator;
@@ -55,8 +57,21 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
         uint256 reward;
     }
 
+    struct WhitelistApplication {
+        uint256 timestamp;
+        uint256 blockNumber;
+        mapping(bool => uint256) prediction;
+        mapping(address => mapping(bool => uint256)) ratings;
+        uint256 reward;
+    }
+
     // TRU is 1e8 decimals
     uint256 private constant TOKEN_PRECISION_DIFFERENCE = 10**10;
+
+    uint256 public constant APPLICATION_VOTING_PERIOD = 7 days;
+    uint256 public constant MIN_APPLICATION_VOTES = 10**6;
+    uint256 public constant MIN_RATIO = 8000;
+    uint256 private constant BASIS_RATIO = 10000;
 
     // ================ WARNING ==================
     // ===== THIS CONTRACT IS INITIALIZABLE ======
@@ -85,6 +100,9 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
 
     mapping(address => bool) public canChangeAllowance;
 
+    // applicant => their application
+    mapping(address => WhitelistApplication) public applications;
+
     // ======= STORAGE DECLARATION END ============
 
     event CanChangeAllowanceChanged(address indexed who, bool status);
@@ -98,6 +116,8 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
     event Claimed(address loanToken, address rater, uint256 claimedReward);
     event SubmissionPauseStatusChanged(bool status);
     event LoanFactoryChanged(address newLoanFactory);
+    event AppliedForWhitelisting(address id);
+    event ApplicationDiscarded(address id);
 
     /**
      * @dev Only whitelisted borrowers can submit for credit ratings
@@ -119,7 +139,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @dev Cannot submit the same loan multiple times
      */
     modifier onlyNotExistingLoans(address id) {
-        require(status(id) == LoanStatus.Void, "TrueRatingAgencyV2: Loan was already created");
+        require(loanStatus(id) == LoanStatus.Void, "TrueRatingAgencyV2: Loan was already created");
         _;
     }
 
@@ -127,7 +147,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @dev Only loans in Pending state
      */
     modifier onlyPendingLoans(address id) {
-        require(status(id) == LoanStatus.Pending, "TrueRatingAgencyV2: Loan is not currently pending");
+        require(loanStatus(id) == LoanStatus.Pending, "TrueRatingAgencyV2: Loan is not currently pending");
         _;
     }
 
@@ -135,7 +155,33 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @dev Only loans that have been funded
      */
     modifier onlyFundedLoans(address id) {
-        require(status(id) >= LoanStatus.Running, "TrueRatingAgencyV2: Loan was not funded");
+        require(loanStatus(id) >= LoanStatus.Running, "TrueRatingAgencyV2: Loan was not funded");
+        _;
+    }
+
+    modifier onlyNotWhitelistedBorrowers() {
+        require(!allowedSubmitters[msg.sender], "TrueRatingAgencyV2: Sender must be not whitelisted");
+        _;
+    }
+
+    modifier onlyPending(address id) {
+        require(
+            loanStatus(id) == LoanStatus.Pending || applicationStatus(id) == ApplicationStatus.Pending,
+            "TrueRatingAgencyV2: Loan/Application should be pending"
+        );
+        _;
+    }
+
+    modifier updateAllowedSubmitters() {
+        WhitelistApplication storage application = applications[msg.sender];
+        uint256 yesVotes = application.prediction[true];
+        uint256 noVotes = application.prediction[false];
+        // check whether applicant can be whitelisted
+        if (application.timestamp != 0 &&
+                block.timestamp >= application.timestamp + APPLICATION_VOTING_PERIOD &&
+                applicationIsAcceptable(yesVotes, noVotes)) {
+            allowedSubmitters[msg.sender] = true;
+        }
         _;
     }
 
@@ -197,7 +243,11 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @param rater Rater account
      */
     function getNoRate(address id, address rater) public view returns (uint256) {
-        return loans[id].ratings[rater][false];
+        if (loanStatus(id) != LoanStatus.Void) {
+            return loans[id].ratings[rater][false];
+        } else {
+            return applications[id].ratings[rater][false];
+        }
     }
 
     /**
@@ -206,7 +256,11 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @param rater Rater account
      */
     function getYesRate(address id, address rater) public view returns (uint256) {
-        return loans[id].ratings[rater][true];
+        if (loanStatus(id) != LoanStatus.Void) {
+            return loans[id].ratings[rater][true];
+        } else {
+            return applications[id].ratings[rater][false];
+        }
     }
 
     /**
@@ -214,7 +268,11 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @param id Loan ID
      */
     function getTotalNoRatings(address id) public view returns (uint256) {
-        return loans[id].prediction[false];
+        if (loanStatus(id) != LoanStatus.Void) {
+            return loans[id].prediction[false];
+        } else {
+            return applications[id].prediction[false];
+        }
     }
 
     /**
@@ -222,7 +280,11 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @param id Loan ID
      */
     function getTotalYesRatings(address id) public view returns (uint256) {
-        return loans[id].prediction[true];
+        if (loanStatus(id) != LoanStatus.Void) {
+            return loans[id].prediction[true];
+        } else {
+            return applications[id].prediction[false];
+        }
     }
 
     /**
@@ -230,7 +292,11 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @param id Loan ID
      */
     function getVotingStart(address id) public view returns (uint256) {
-        return loans[id].timestamp;
+        if (loanStatus(id) != LoanStatus.Void) {
+            return loans[id].timestamp;
+        } else {
+            return applications[id].timestamp;
+        }
     }
 
     /**
@@ -284,7 +350,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * Cannot submit the same loan twice
      * @param id Loan ID
      */
-    function submit(address id) external override onlyAllowedSubmitters onlyNotExistingLoans(id) {
+    function submit(address id) external override updateAllowedSubmitters onlyAllowedSubmitters onlyNotExistingLoans(id) {
         require(!submissionPauseStatus, "TrueRatingAgencyV2: New submissions are paused");
         require(ILoanToken2(id).borrower() == msg.sender, "TrueRatingAgencyV2: Sender is not borrower");
         require(factory.isLoanToken(id), "TrueRatingAgencyV2: Only LoanTokens created via LoanFactory are supported");
@@ -301,8 +367,18 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
         loans[id].creator = address(0);
         loans[id].prediction[true] = 0;
         loans[id].prediction[false] = 0;
-
         emit LoanRetracted(id);
+    }
+
+    function applyForWhitelisting() external onlyNotWhitelistedBorrowers() {
+        applications[msg.sender] = WhitelistApplication({timestamp: block.timestamp, blockNumber: block.number, reward: 0});
+        emit AppliedForWhitelisting(msg.sender);
+    }
+
+    function discardApplication() external {
+        applications[msg.sender].prediction[true] = 0;
+        applications[msg.sender].prediction[false] = 0;
+        emit ApplicationDiscarded(msg.sender);
     }
 
     /**
@@ -316,10 +392,28 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
 
         resetCastRatings(id);
 
-        loans[id].prediction[choice] = loans[id].prediction[choice].add(stake);
-        loans[id].ratings[msg.sender][choice] = loans[id].ratings[msg.sender][choice].add(stake);
+        updateRating(id, choice, stake);
 
         emit Rated(id, msg.sender, choice, stake);
+    }
+
+    function updateRating(address id, bool choice, uint256 stake) internal {
+        if (loanStatus(id) != LoanStatus.Void) {
+            updateLoanRating(id, choice, stake);
+        } else {
+            updateWhitelistRating(id, choice, stake);
+        }
+    }
+
+    function updateLoanRating(address id, bool choice, uint256 stake) internal {
+        loans[id].prediction[choice] = loans[id].prediction[choice].add(stake);
+        //        loans[id].ratings[msg.sender][choice] = loans[id].ratings[msg.sender][choice].add(stake);
+        loans[id].ratings[msg.sender][choice] = stake;
+    }
+
+    function updateWhitelistRating(address id, bool choice, uint256 stake) internal {
+        applications[id].prediction[choice] = applications[id].prediction[choice].add(stake);
+        applications[id].ratings[msg.sender][choice] = stake;
     }
 
     /**
@@ -336,7 +430,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @dev Cancel ratings of msg.sender
      * @param id ID to cancel ratings for
      */
-    function resetCastRatings(address id) public override onlyPendingLoans(id) {
+    function resetCastRatings(address id) public override onlyPending(id) {
         if (getYesRate(id, msg.sender) > 0) {
             _resetCastRatings(id, true);
         } else if (getNoRate(id, msg.sender) > 0) {
@@ -348,7 +442,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @dev Rate YES on a loan by staking TRU
      * @param id Loan ID
      */
-    function yes(address id) external override onlyPendingLoans(id) {
+    function yes(address id) external override onlyPending(id) {
         rate(id, true);
     }
 
@@ -356,7 +450,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @dev Rate NO on a loan by staking TRU
      * @param id Loan ID
      */
-    function no(address id) external override onlyPendingLoans(id) {
+    function no(address id) external override onlyPending(id) {
         rate(id, false);
     }
 
@@ -452,7 +546,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @return Amount claimable for id and address
      */
     function claimable(address id, address rater) public view returns (uint256) {
-        if (status(id) < LoanStatus.Running) {
+        if (loanStatus(id) < LoanStatus.Running) {
             return 0;
         }
 
@@ -473,7 +567,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @param id Loan ID
      * @return Status of loan
      */
-    function status(address id) public view returns (LoanStatus) {
+    function loanStatus(address id) public view returns (LoanStatus) {
         Loan storage loan = loans[id];
         // Void loan doesn't exist because timestamp is zero
         if (loan.creator == address(0) && loan.timestamp == 0) {
@@ -504,5 +598,24 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
         }
         // otherwise return Pending
         return LoanStatus.Pending;
+    }
+
+    function applicationStatus(address id) public view returns (ApplicationStatus) {
+        WhitelistApplication storage application = applications[id];
+        if (application.timestamp == 0) {
+            return ApplicationStatus.Void;
+        }
+        if (application.timestamp != 0) {
+            return ApplicationStatus.Discarded;
+        }
+        if (allowedSubmitters[id]) {
+            return ApplicationStatus.Accepted;
+        }
+        return ApplicationStatus.Pending;
+    }
+
+    function applicationIsAcceptable(uint256 yesVotes, uint256 noVotes) public pure returns (bool) {
+        uint256 totalVotes = yesVotes.add(noVotes);
+        return yesVotes >= totalVotes.mul(MIN_RATIO).div(BASIS_RATIO);
     }
 }

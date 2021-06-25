@@ -417,12 +417,12 @@ describe('TrueRatingAgencyV2', () => {
         await timeTravel(7 * DAY + 1)
         await lender.fund(loanToken.address)
         await expect(rater.yes(loanToken.address))
-          .to.be.revertedWith('TrueRatingAgencyV2: Loan is not currently pending')
+          .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
       })
 
       it('is only possible for existing loans', async () => {
         await expect(rater.yes(fakeLoanTokenAddress))
-          .to.be.revertedWith('TrueRatingAgencyV2: Loan is not currently pending')
+          .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
       })
 
       it('emits proper event', async () => {
@@ -475,12 +475,12 @@ describe('TrueRatingAgencyV2', () => {
         await timeTravel(7 * DAY + 1)
         await lender.fund(loanToken.address)
         await expect(rater.no(loanToken.address))
-          .to.be.revertedWith('TrueRatingAgencyV2: Loan is not currently pending')
+          .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
       })
 
       it('is only possible for existing loans', async () => {
         await expect(rater.no(fakeLoanTokenAddress))
-          .to.be.revertedWith('TrueRatingAgencyV2: Loan is not currently pending')
+          .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
       })
 
       it('emits proper event', async () => {
@@ -495,7 +495,7 @@ describe('TrueRatingAgencyV2', () => {
         await timeTravel(7 * DAY + 1)
         await lender.fund(loanToken.address)
         await expect(rater.resetCastRatings(loanToken.address))
-          .to.be.revertedWith('TrueRatingAgencyV2: Loan is not currently pending')
+          .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
       })
 
       it('cancels yes ratings', async () => {
