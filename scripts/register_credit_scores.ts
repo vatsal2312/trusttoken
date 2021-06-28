@@ -9,7 +9,7 @@ import {
 
 // inputs
 const oracleAddressMainnet = '0x73581551665680696946f568259977Da02e8712A'
-const txnArgs = { gasLimit: 1_000_000, gasPrice: 60_000_000_000 }
+const txnArgs = { gasLimit: 100_000, gasPrice: 50_000_000_000 }
 
 // testnet
 let oracleAddress = '0x9ff6ca759631E658444Ba85409a283f55C49bb93'
@@ -26,6 +26,7 @@ async function registerCreditScores () {
   const oracle = await TrueFiCreditOracle__factory.connect(oracleAddress, wallet)
   const scores = getScores()
 
+  console.log('WRITING SCORES...')
   for (let i = 0; i < scores.length; i++) {
     await setScore(oracle, scores[i].score, scores[i].address)
   }
