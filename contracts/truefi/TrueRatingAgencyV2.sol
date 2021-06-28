@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.6.10;
-import "hardhat/console.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20WithDecimals} from "../truefi2/interface/IERC20WithDecimals.sol";
 import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
@@ -32,7 +31,7 @@ import {ITrueRatingAgencyV2} from "./interface/ITrueRatingAgencyV2.sol";
  * - LoanTokens are registered with the prediction market contract
  * - Once registered, stkTRU holders can rate at any time
  *
- * States:
+ * Loan States:
  * Void:        Rated loan is invalid
  * Pending:     Waiting to be funded
  * Retracted:   Rating has been cancelled
@@ -40,12 +39,19 @@ import {ITrueRatingAgencyV2} from "./interface/ITrueRatingAgencyV2.sol";
  * Settled:     Rated loan has been paid back in full
  * Defaulted:   Rated loan has not been paid back in full
  * Liquidated:  Rated loan has defaulted and stakers have been liquidated
+ *
+ * Whitelist application states
+ * Void:        Application is invalid
+ * Pending:     Waiting to be rated
+ * Cancelled:   Application has been cancelled
+ * Accepted:    Application has been accepted
  */
+
 contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
     using SafeMath for uint256;
 
     enum LoanStatus {Void, Pending, Retracted, Running, Settled, Defaulted, Liquidated}
-    enum ApplicationStatus {Void, Pending, Discarded, Accepted}
+    enum ApplicationStatus {Void, Pending, Cancelled, Accepted}
 
     struct Loan {
         address creator;
@@ -68,6 +74,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
     // TRU is 1e8 decimals
     uint256 private constant TOKEN_PRECISION_DIFFERENCE = 10**10;
 
+    // Requirements to meet for an application to be accepted
     uint256 public constant APPLICATION_VOTING_PERIOD = 7 days;
     uint256 public constant MIN_APPLICATION_VOTES = 10**6;
     uint256 public constant MIN_RATIO = 8000;
@@ -117,7 +124,7 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
     event SubmissionPauseStatusChanged(bool status);
     event LoanFactoryChanged(address newLoanFactory);
     event AppliedForWhitelisting(address id);
-    event ApplicationDiscarded(address id);
+    event ApplicationCancelled(address id);
 
     /**
      * @dev Only whitelisted borrowers can submit for credit ratings
@@ -159,11 +166,17 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
         _;
     }
 
+    /**
+     * @dev Only borrowers who are not whitelisted
+     */
     modifier onlyNotWhitelistedBorrowers() {
         require(!allowedSubmitters[msg.sender], "TrueRatingAgencyV2: Sender must be not whitelisted");
         _;
     }
 
+    /**
+     * @dev Only loans/application in Pending state
+     */
     modifier onlyPending(address id) {
         require(
             loanStatus(id) == LoanStatus.Pending || applicationStatus(id) == ApplicationStatus.Pending,
@@ -238,8 +251,8 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
     }
 
     /**
-     * @dev Get number of NO ratings for a specific account and loan
-     * @param id Loan ID
+     * @dev Get number of NO ratings for a specific account and loan/application
+     * @param id Loan/application ID
      * @param rater Rater account
      */
     function getNoRate(address id, address rater) public view returns (uint256) {
@@ -251,21 +264,21 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
     }
 
     /**
-     * @dev Get number of YES ratings for a specific account and loan
-     * @param id Loan ID
+     * @dev Get number of YES ratings for a specific account and loan/application
+     * @param id Loan/application ID
      * @param rater Rater account
      */
     function getYesRate(address id, address rater) public view returns (uint256) {
         if (loanStatus(id) != LoanStatus.Void) {
             return loans[id].ratings[rater][true];
         } else {
-            return applications[id].ratings[rater][false];
+            return applications[id].ratings[rater][true];
         }
     }
 
     /**
-     * @dev Get total NO ratings for a specific loan
-     * @param id Loan ID
+     * @dev Get total NO ratings for a specific loan/application
+     * @param id Loan/application ID
      */
     function getTotalNoRatings(address id) public view returns (uint256) {
         if (loanStatus(id) != LoanStatus.Void) {
@@ -276,20 +289,20 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
     }
 
     /**
-     * @dev Get total YES ratings for a specific loan
-     * @param id Loan ID
+     * @dev Get total YES ratings for a specific loan/application
+     * @param id Loan/application ID
      */
     function getTotalYesRatings(address id) public view returns (uint256) {
         if (loanStatus(id) != LoanStatus.Void) {
             return loans[id].prediction[true];
         } else {
-            return applications[id].prediction[false];
+            return applications[id].prediction[true];
         }
     }
 
     /**
-     * @dev Get timestamp at which voting started for a specific loan
-     * @param id Loan ID
+     * @dev Get timestamp at which voting started for a specific loan/application
+     * @param id Loan/application ID
      */
     function getVotingStart(address id) public view returns (uint256) {
         if (loanStatus(id) != LoanStatus.Void) {
@@ -300,8 +313,8 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
     }
 
     /**
-     * @dev Get current results for a specific loan
-     * @param id Loan ID
+     * @dev Get current results for a specific loan/application
+     * @param id Loan/application ID
      * @return (start_time, total_no, total_yes)
      */
     function getResults(address id)
@@ -370,24 +383,47 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
         emit LoanRetracted(id);
     }
 
+    /**
+     * @dev Submit an application for rating
+     * Cannot submit the same application twice.
+     * Once whitelisted borrowers cannot apply for whitelisting.
+     */
     function applyForWhitelisting() external onlyNotWhitelistedBorrowers() {
         applications[msg.sender] = WhitelistApplication({timestamp: block.timestamp, blockNumber: block.number, reward: 0});
         emit AppliedForWhitelisting(msg.sender);
     }
 
-    function discardApplication() external {
+    /**
+     * @dev Remove Application from rating agency
+     * Can only be retracted by its applicant
+     */
+    function cancelApplication() external {
+        require(applicationStatus(msg.sender) == ApplicationStatus.Pending, "TrueRatingAgencyV2: Only pending applications can be canceled");
+
+        applications[msg.sender].timestamp = 0;
         applications[msg.sender].prediction[true] = 0;
         applications[msg.sender].prediction[false] = 0;
-        emit ApplicationDiscarded(msg.sender);
+        emit ApplicationCancelled(msg.sender);
     }
 
     /**
-     * @dev Rate on a loan by staking TRU
-     * @param id Loan ID
+     * @dev Internal function to help get block number of loan/application
+     * @param id Loan/application ID
+     */
+    function getBlockNumber(address id) internal view returns (uint256) {
+        if (loanStatus(id) != LoanStatus.Void) {
+            return loans[id].blockNumber;
+        }
+        return applications[id].blockNumber;
+    }
+
+    /**
+     * @dev Rate on a loan/application by staking TRU
+     * @param id Loan/application ID
      * @param choice Rater choice. false = NO, true = YES
      */
     function rate(address id, bool choice) internal {
-        uint256 stake = stkTRU.getPriorVotes(msg.sender, loans[id].blockNumber);
+        uint256 stake = stkTRU.getPriorVotes(msg.sender, getBlockNumber(id));
         require(stake > 0, "TrueRatingAgencyV2: Cannot rate with empty balance");
 
         resetCastRatings(id);
@@ -397,6 +433,12 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
         emit Rated(id, msg.sender, choice, stake);
     }
 
+    /**
+     * @dev Function to update loan/application rating
+     * @param id Loan/application ID
+     * @param choice Boolean representing choice
+     * @param stake Value of TRU to lock on vote
+     */
     function updateRating(address id, bool choice, uint256 stake) internal {
         if (loanStatus(id) != LoanStatus.Void) {
             updateLoanRating(id, choice, stake);
@@ -405,12 +447,24 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
         }
     }
 
+    /**
+     * @dev Internal function to help update loan rating
+     * @param id Loan ID
+     * @param choice Boolean representing choice
+     * @param stake Value of TRU to lock on vote
+     */
     function updateLoanRating(address id, bool choice, uint256 stake) internal {
         loans[id].prediction[choice] = loans[id].prediction[choice].add(stake);
         //        loans[id].ratings[msg.sender][choice] = loans[id].ratings[msg.sender][choice].add(stake);
         loans[id].ratings[msg.sender][choice] = stake;
     }
 
+    /**
+     * @dev Internal function to help update loan rating
+     * @param id Application ID
+     * @param choice Boolean representing choice
+     * @param stake Value of TRU to lock on vote
+     */
     function updateWhitelistRating(address id, bool choice, uint256 stake) internal {
         applications[id].prediction[choice] = applications[id].prediction[choice].add(stake);
         applications[id].ratings[msg.sender][choice] = stake;
@@ -421,9 +475,19 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @param id Loan ID
      * @param choice Boolean representing choice
      */
-    function _resetCastRatings(address id, bool choice) internal {
+    function resetCastLoanRatings(address id, bool choice) internal {
         loans[id].prediction[choice] = loans[id].prediction[choice].sub(loans[id].ratings[msg.sender][choice]);
         loans[id].ratings[msg.sender][choice] = 0;
+    }
+
+    /**
+     * @dev Internal function to help reset ratings
+     * @param id Application ID
+     * @param choice Boolean representing choice
+     */
+    function resetCastApplicationRatings(address id, bool choice) internal {
+        applications[id].prediction[choice] = applications[id].prediction[choice].sub(applications[id].ratings[msg.sender][choice]);
+        applications[id].ratings[msg.sender][choice] = 0;
     }
 
     /**
@@ -432,23 +496,31 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      */
     function resetCastRatings(address id) public override onlyPending(id) {
         if (getYesRate(id, msg.sender) > 0) {
-            _resetCastRatings(id, true);
+            if (loanStatus(id) != LoanStatus.Void) {
+                resetCastLoanRatings(id, true);
+            } else {
+                resetCastApplicationRatings(id, true);
+            }
         } else if (getNoRate(id, msg.sender) > 0) {
-            _resetCastRatings(id, false);
+            if (loanStatus(id) != LoanStatus.Void) {
+                resetCastLoanRatings(id, false);
+            } else {
+                resetCastApplicationRatings(id, false);
+            }
         }
     }
 
     /**
-     * @dev Rate YES on a loan by staking TRU
-     * @param id Loan ID
+     * @dev Rate YES on a loan/application by staking TRU
+     * @param id Loan/application ID
      */
     function yes(address id) external override onlyPending(id) {
         rate(id, true);
     }
 
     /**
-     * @dev Rate NO on a loan by staking TRU
-     * @param id Loan ID
+     * @dev Rate NO on a loan/application by staking TRU
+     * @param id Loan/application ID
      */
     function no(address id) external override onlyPending(id) {
         rate(id, false);
@@ -600,22 +672,41 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
         return LoanStatus.Pending;
     }
 
+    /**
+     * @dev Get status for a specific application
+     * @param id Application id
+     * @return Status of the application
+     */
     function applicationStatus(address id) public view returns (ApplicationStatus) {
-        WhitelistApplication storage application = applications[id];
-        if (application.timestamp == 0) {
-            return ApplicationStatus.Void;
-        }
-        if (application.timestamp != 0) {
-            return ApplicationStatus.Discarded;
-        }
+        // If applicant is allowed to submit,
+        // then their application must have been accepted.
         if (allowedSubmitters[id]) {
             return ApplicationStatus.Accepted;
         }
+
+        WhitelistApplication storage application = applications[id];
+        // Void application doesn't exist
+        if (application.timestamp == 0 && application.blockNumber == 0) {
+            return ApplicationStatus.Void;
+        }
+
+        // To distinguish canceled application its timestamp is set to 0
+        if (application.timestamp == 0 && application.blockNumber != 0) {
+            return ApplicationStatus.Cancelled;
+        }
+
+        // otherwise return Pending
         return ApplicationStatus.Pending;
     }
 
-    function applicationIsAcceptable(uint256 yesVotes, uint256 noVotes) public pure returns (bool) {
+    /**
+     * @dev Check whether application is acceptable for provided votes
+     * @param yesVotes Votes for
+     * @param noVotes Votes against
+     * @return Bool value if application votes meet requirements for it to be accepted
+     */
+    function applicationIsAcceptable(uint256 yesVotes, uint256 noVotes) internal pure returns (bool) {
         uint256 totalVotes = yesVotes.add(noVotes);
-        return yesVotes >= totalVotes.mul(MIN_RATIO).div(BASIS_RATIO);
+        return totalVotes >= MIN_APPLICATION_VOTES && yesVotes >= totalVotes.mul(MIN_RATIO).div(BASIS_RATIO);
     }
 }
