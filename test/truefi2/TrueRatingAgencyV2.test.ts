@@ -10,8 +10,8 @@ import {
   expectScaledCloseTo,
   expectBalanceChangeCloseTo,
   parseEth,
-  DAY
-} from "utils";
+  DAY,
+} from 'utils'
 
 import {
   TrueRatingAgencyV2__factory, TrueRatingAgencyV2,
@@ -285,7 +285,7 @@ describe('TrueRatingAgencyV2', () => {
       it('reverts if applicant is already whitelisted', async () => {
         await rater.allow(owner.address, true)
         await expect(rater.connect(owner).applyForWhitelisting())
-          .to.be.revertedWith("TrueRatingAgencyV2: Sender must be not whitelisted")
+          .to.be.revertedWith('TrueRatingAgencyV2: Sender must be not whitelisted')
       })
 
       it('creates application', async () => {

@@ -189,10 +189,13 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
         WhitelistApplication storage application = applications[msg.sender];
         uint256 yesVotes = application.prediction[true];
         uint256 noVotes = application.prediction[false];
+
         // check whether applicant can be whitelisted
-        if (application.timestamp != 0 &&
-                block.timestamp >= application.timestamp + APPLICATION_VOTING_PERIOD &&
-                applicationIsAcceptable(yesVotes, noVotes)) {
+        if (
+            application.timestamp != 0 &&
+            block.timestamp >= application.timestamp + APPLICATION_VOTING_PERIOD &&
+            applicationIsAcceptable(yesVotes, noVotes)
+        ) {
             allowedSubmitters[msg.sender] = true;
         }
         _;
@@ -398,7 +401,10 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * Can only be retracted by its applicant
      */
     function cancelApplication() external {
-        require(applicationStatus(msg.sender) == ApplicationStatus.Pending, "TrueRatingAgencyV2: Only pending applications can be canceled");
+        require(
+            applicationStatus(msg.sender) == ApplicationStatus.Pending,
+            "TrueRatingAgencyV2: Only pending applications can be canceled"
+        );
 
         applications[msg.sender].timestamp = 0;
         applications[msg.sender].prediction[true] = 0;
@@ -439,7 +445,11 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @param choice Boolean representing choice
      * @param stake Value of TRU to lock on vote
      */
-    function updateRating(address id, bool choice, uint256 stake) internal {
+    function updateRating(
+        address id,
+        bool choice,
+        uint256 stake
+    ) internal {
         if (loanStatus(id) != LoanStatus.Void) {
             updateLoanRating(id, choice, stake);
         } else {
@@ -453,7 +463,11 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @param choice Boolean representing choice
      * @param stake Value of TRU to lock on vote
      */
-    function updateLoanRating(address id, bool choice, uint256 stake) internal {
+    function updateLoanRating(
+        address id,
+        bool choice,
+        uint256 stake
+    ) internal {
         loans[id].prediction[choice] = loans[id].prediction[choice].add(stake);
         //        loans[id].ratings[msg.sender][choice] = loans[id].ratings[msg.sender][choice].add(stake);
         loans[id].ratings[msg.sender][choice] = stake;
@@ -465,7 +479,11 @@ contract TrueRatingAgencyV2 is ITrueRatingAgencyV2, Ownable {
      * @param choice Boolean representing choice
      * @param stake Value of TRU to lock on vote
      */
-    function updateWhitelistRating(address id, bool choice, uint256 stake) internal {
+    function updateWhitelistRating(
+        address id,
+        bool choice,
+        uint256 stake
+    ) internal {
         applications[id].prediction[choice] = applications[id].prediction[choice].add(stake);
         applications[id].ratings[msg.sender][choice] = stake;
     }
