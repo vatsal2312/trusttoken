@@ -10,8 +10,8 @@ import {
   expectScaledCloseTo,
   expectBalanceChangeCloseTo,
   parseEth,
-  DAY,
-} from 'utils'
+  DAY
+} from "utils";
 
 import {
   TrueRatingAgencyV2__factory, TrueRatingAgencyV2,
@@ -70,6 +70,10 @@ describe('TrueRatingAgencyV2', () => {
   let usdcPool: TrueFiPool2
   let implementationReference: ImplementationReference
   let poolImplementation: TrueFiPool2
+
+  enum ApplicationStatus {
+    Void, Pending, Cancelled, Accepted
+  }
 
   const createLoan = async function (factory: LoanFactory2, creator: Wallet, pool: TrueFiPool2, amount: BigNumberish, duration: BigNumberish, apy: BigNumberish) {
     const loanTx = await factory.connect(creator).createLoanToken(pool.address, amount, duration, apy)
@@ -229,7 +233,7 @@ describe('TrueRatingAgencyV2', () => {
     })
   })
 
-  describe('Whitelisting', () => {
+  describe('Whitelisting by those entitled to', () => {
     it('changes whitelist status', async () => {
       expect(await rater.allowedSubmitters(otherWallet.address)).to.be.false
       await rater.allow(otherWallet.address, true)
@@ -248,6 +252,236 @@ describe('TrueRatingAgencyV2', () => {
     it('reverts when performed by not allowed account', async () => {
       await expect(rater.connect(otherWallet).allow(otherWallet.address, true))
         .to.be.revertedWith('TrueRatingAgencyV2: Cannot change allowances')
+    })
+  })
+
+  describe('Statuses of applications for whitelisting', () => {
+    it('has Void status if there is no application', async () => {
+      expect(await rater.applicationStatus(owner.address)).to.eq(ApplicationStatus.Void)
+    })
+
+    it('has Pending status if someone applied for a whitelisting', async () => {
+      await rater.connect(owner).applyForWhitelisting()
+      expect(await rater.applicationStatus(owner.address)).to.eq(ApplicationStatus.Pending)
+    })
+
+    it('has Pending status if someone applied for a whitelisting', async () => {
+      await rater.connect(owner).applyForWhitelisting()
+      await rater.connect(owner).cancelApplication()
+      expect(await rater.applicationStatus(owner.address)).to.eq(ApplicationStatus.Cancelled)
+    })
+
+    it('has Accepted status if requirements are met and a loan is submitted', async () => {
+      await rater.connect(owner).applyForWhitelisting()
+      await rater.yes(owner.address)
+      await timeTravel(7 * DAY + 1)
+      await submit(loanToken.address, owner)
+      expect(await rater.applicationStatus(owner.address)).to.eq(ApplicationStatus.Accepted)
+    })
+  })
+
+  describe('Whitelisting by voting', () => {
+    describe('Applying for whitelisting', () => {
+      it('reverts if applicant is already whitelisted', async () => {
+        await rater.allow(owner.address, true)
+        await expect(rater.connect(owner).applyForWhitelisting())
+          .to.be.revertedWith("TrueRatingAgencyV2: Sender must be not whitelisted")
+      })
+
+      it('creates application', async () => {
+        await rater.connect(owner).applyForWhitelisting()
+        const application = await rater.applications(owner.address)
+        expect(application.timestamp).to.be.gt(0)
+        expect(application.blockNumber).to.be.gt(0)
+        expect(application.reward).to.eq(0)
+        expect(await rater.claimable(owner.address, owner.address)).to.equal(0)
+        expect(await rater.getTotalYesRatings(owner.address)).to.be.equal(0)
+        expect(await rater.getTotalNoRatings(owner.address)).to.be.equal(0)
+        expect(await rater.applicationStatus(owner.address)).to.eq(ApplicationStatus.Pending)
+      })
+
+      it('emits event', async () => {
+        await expect(rater.connect(owner).applyForWhitelisting())
+          .to.emit(rater, 'AppliedForWhitelisting').withArgs(owner.address)
+      })
+    })
+
+    describe('Cancelling application for whitelisting', () => {
+      it('reverts if trying to cancel non-existent application', async () => {
+        await expect(rater.connect(owner).cancelApplication())
+          .to.be.revertedWith('TrueRatingAgencyV2: Only pending applications can be canceled')
+      })
+
+      it('reverts if trying to cancel already canceled application', async () => {
+        await rater.connect(owner).applyForWhitelisting()
+        await rater.connect(owner).cancelApplication()
+        await expect(rater.connect(owner).cancelApplication())
+          .to.be.revertedWith('TrueRatingAgencyV2: Only pending applications can be canceled')
+      })
+
+      it('cancels application', async () => {
+        await rater.connect(owner).applyForWhitelisting()
+        expect((await rater.applications(owner.address)).timestamp).to.be.gt(0)
+        await rater.connect(owner).cancelApplication()
+        expect((await rater.applications(owner.address)).timestamp).to.eq(0)
+        expect(await rater.applicationStatus(owner.address)).to.eq(ApplicationStatus.Cancelled)
+      })
+
+      it('emits event', async () => {
+        await rater.connect(owner).applyForWhitelisting()
+        await expect(rater.connect(owner).cancelApplication())
+          .to.emit(rater, 'ApplicationCancelled').withArgs(owner.address)
+      })
+    })
+
+    describe('Voting on applications', () => {
+      describe('Yes', () => {
+        it('reverts if application is not submitted', async () => {
+          await expect(rater.connect(owner).yes(otherWallet.address))
+            .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
+        })
+
+        it('reverts if application is canceled', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await rater.connect(owner).cancelApplication()
+          await expect(rater.connect(owner).yes(otherWallet.address))
+            .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
+        })
+
+        it('doesn\'t revert if application is pending', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await expect(rater.yes(owner.address))
+            .not.to.be.reverted
+        })
+
+        it('reverts if application is accepted', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await rater.yes(owner.address)
+          await timeTravel(7 * DAY + 1)
+          await submit(loanToken.address)
+          await expect(rater.yes(owner.address))
+            .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
+        })
+
+        it('keeps track of ratings', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await rater.connect(owner).yes(owner.address)
+          expect(await rater.getYesRate(owner.address, owner.address)).to.eq(stake)
+          expect(await rater.getNoRate(owner.address, owner.address)).to.eq(0)
+        })
+
+        it('increase total number of yes votes', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await rater.connect(owner).yes(owner.address)
+          expect(await rater.getTotalYesRatings(owner.address)).to.be.equal(stake)
+        })
+
+        it('does not change yes value when rated multiple times', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+
+          await rater.connect(owner).yes(owner.address)
+          expect(await rater.getTotalYesRatings(owner.address)).to.eq(stake)
+          expect(await rater.getYesRate(owner.address, owner.address)).to.eq(stake)
+
+          await rater.connect(owner).yes(owner.address)
+          expect(await rater.getTotalYesRatings(owner.address)).to.eq(stake)
+          expect(await rater.getYesRate(owner.address, owner.address)).to.eq(stake)
+        })
+
+        it('voting yes, after voting no changes choice', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+
+          await rater.connect(owner).no(owner.address)
+          await rater.connect(owner).yes(owner.address)
+
+          expect(await rater.getTotalYesRatings(owner.address)).to.be.equal(stake)
+          expect(await rater.getTotalNoRatings(owner.address)).to.be.equal(0)
+
+          expect(await rater.getYesRate(owner.address, owner.address)).to.be.equal(stake)
+          expect(await rater.getNoRate(owner.address, owner.address)).to.be.equal(0)
+        })
+
+        it('emits event', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await expect(rater.connect(owner).yes(owner.address))
+            .to.emit(rater, 'Rated')
+            .withArgs(owner.address, owner.address, true, stake)
+        })
+      })
+
+      describe('No', () => {
+        it('reverts if application is not submitted', async () => {
+          await expect(rater.connect(owner).no(otherWallet.address))
+            .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
+        })
+
+        it('reverts if application is canceled', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await rater.connect(owner).cancelApplication()
+          await expect(rater.connect(owner).no(otherWallet.address))
+            .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
+        })
+
+        it('doesn\'t revert if application is pending', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await expect(rater.no(owner.address))
+            .not.to.be.reverted
+        })
+
+        it('reverts if application is accepted', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await rater.yes(owner.address)
+          await timeTravel(7 * DAY + 1)
+          await submit(loanToken.address)
+          await expect(rater.no(owner.address))
+            .to.be.revertedWith('TrueRatingAgencyV2: Loan/Application should be pending')
+        })
+
+        it('keeps track of ratings', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await rater.connect(owner).no(owner.address)
+          expect(await rater.getYesRate(owner.address, owner.address)).to.eq(0)
+          expect(await rater.getNoRate(owner.address, owner.address)).to.eq(stake)
+        })
+
+        it('increase total number of no votes', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await rater.connect(owner).no(owner.address)
+          expect(await rater.getTotalNoRatings(owner.address)).to.be.equal(stake)
+        })
+
+        it('does not change no value when rated multiple times', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+
+          await rater.connect(owner).no(owner.address)
+          expect(await rater.getTotalNoRatings(owner.address)).to.eq(stake)
+          expect(await rater.getNoRate(owner.address, owner.address)).to.eq(stake)
+
+          await rater.connect(owner).no(owner.address)
+          expect(await rater.getTotalNoRatings(owner.address)).to.eq(stake)
+          expect(await rater.getNoRate(owner.address, owner.address)).to.eq(stake)
+        })
+
+        it('voting no, after voting yes changes choice', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+
+          await rater.connect(owner).yes(owner.address)
+          await rater.connect(owner).no(owner.address)
+
+          expect(await rater.getTotalYesRatings(owner.address)).to.be.equal(0)
+          expect(await rater.getTotalNoRatings(owner.address)).to.be.equal(stake)
+
+          expect(await rater.getYesRate(owner.address, owner.address)).to.be.equal(0)
+          expect(await rater.getNoRate(owner.address, owner.address)).to.be.equal(stake)
+        })
+
+        it('emits event', async () => {
+          await rater.connect(owner).applyForWhitelisting()
+          await expect(rater.connect(owner).no(owner.address))
+            .to.emit(rater, 'Rated')
+            .withArgs(owner.address, owner.address, false, stake)
+        })
+      })
     })
   })
 
