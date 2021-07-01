@@ -282,7 +282,7 @@ contract TrueFiPool2 is ITrueFiPool2, IPauseableContract, ERC20, UpgradeableClai
      * "virtual price" of entire pool - LoanTokens, UnderlyingTokens, strategy value
      * @return pool value denominated in underlying token
      */
-    function poolValue() public view returns (uint256) {
+    function poolValue() public virtual view returns (uint256) {
         // this assumes defaulted loans are worth their full value
         return liquidValue().add(loansValue()).add(deficitValue());
     }
@@ -349,7 +349,7 @@ contract TrueFiPool2 is ITrueFiPool2, IPauseableContract, ERC20, UpgradeableClai
      * @dev Join the pool by depositing tokens
      * @param amount amount of token to deposit
      */
-    function join(uint256 amount) external override joiningNotPaused {
+    function join(uint256 amount) public virtual override joiningNotPaused {
         uint256 fee = amount.mul(joiningFee).div(BASIS_PRECISION);
         uint256 mintedAmount = mint(amount.sub(fee));
         claimableFees = claimableFees.add(fee);
@@ -366,7 +366,7 @@ contract TrueFiPool2 is ITrueFiPool2, IPauseableContract, ERC20, UpgradeableClai
      * This function will withdraw a basket of currencies backing the pool value
      * @param amount amount of pool tokens to redeem for underlying tokens
      */
-    function exit(uint256 amount) external {
+    function exit(uint256 amount) public virtual {
         require(block.number != latestJoinBlock[tx.origin], "TrueFiPool: Cannot join and exit in same block");
         require(amount <= balanceOf(msg.sender), "TrueFiPool: Insufficient funds");
 
@@ -400,7 +400,7 @@ contract TrueFiPool2 is ITrueFiPool2, IPauseableContract, ERC20, UpgradeableClai
      * Uses the sync() modifier to reduce gas costs of using strategy and lender
      * @param amount amount of pool liquidity tokens to redeem for underlying tokens
      */
-    function liquidExit(uint256 amount) external sync {
+    function liquidExit(uint256 amount) public virtual sync {
         require(block.number != latestJoinBlock[tx.origin], "TrueFiPool: Cannot join and exit in same block");
         require(amount <= balanceOf(msg.sender), "TrueFiPool: Insufficient funds");
 
