@@ -20,7 +20,7 @@ contract CreditLinesPool is TrueFiPool2 {
         uint256 totalBorrowed;
         address[] borrowers;
     }
-    Checkpoint cp;
+    Checkpoint public cp;
 
     function interest(address borrower) public view returns (uint256) {
         return
@@ -84,7 +84,7 @@ contract CreditLinesPool is TrueFiPool2 {
     }
 
     function borrowCreditLine(uint256 amount) external {
-        if (cp.borrowed[msg.sender] > 0) {
+        if (cp.borrowed[msg.sender] == 0) {
             cp.borrowers.push(msg.sender);
         }
         cp.borrowed[msg.sender] += amount;
